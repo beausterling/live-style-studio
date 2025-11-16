@@ -1,73 +1,114 @@
-# Welcome to your Lovable project
+# Decart Realtime Video Restyling
 
-## Project info
+A real-time video restyling application that transforms your webcam feed using the Decart Realtime Video API with the Mirage V2 model.
 
-**URL**: https://lovable.dev/projects/48c7fbd4-e49c-4359-b8eb-750e9a3fe709
+## Features
 
-## How can I edit this code?
+- **Real-time Video Transformation**: Stream your webcam feed and see AI-powered style transformations instantly
+- **Dynamic Style Control**: Change styles on-the-fly with custom prompts or quick presets
+- **Low Latency**: Optimized for minimal delay between input and transformed output
+- **Camera Controls**: Mirror/unmirror your camera feed with a single click
+- **Live Preview**: See both your original feed and the transformed output side-by-side
+- **Connection Monitoring**: Real-time status updates and error handling
 
-There are several ways of editing your application.
+## Prerequisites
 
-**Use Lovable**
+- Node.js (v18 or higher)
+- A Decart API key (get one at [platform.decart.ai](https://platform.decart.ai))
+- A modern web browser with webcam access
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/48c7fbd4-e49c-4359-b8eb-750e9a3fe709) and start prompting.
+## Setup
 
-Changes made via Lovable will be committed automatically to this repo.
+1. **Clone the repository**
+   ```bash
+   git clone <YOUR_GIT_URL>
+   cd <YOUR_PROJECT_NAME>
+   ```
 
-**Use your preferred IDE**
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+3. **Set up environment variables**
+   
+   Create a `.env` file in the root directory:
+   ```env
+   VITE_DECART_API_KEY=your_decart_api_key_here
+   ```
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+   **Important**: Never commit your API key to version control. The `.env` file is already in `.gitignore`.
 
-Follow these steps:
+4. **Run the development server**
+   ```bash
+   npm run dev
+   ```
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
+   The app will be available at `http://localhost:8080`
 
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
+## Building for Production
 
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+```bash
+npm run build
 ```
 
-**Edit a file directly in GitHub**
+The production-ready files will be in the `dist` directory.
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+## Usage
 
-**Use GitHub Codespaces**
+1. **Start the Application**: Click the "Start" button to begin streaming
+2. **Grant Camera Access**: Allow the browser to access your webcam and microphone
+3. **Set a Style**: Enter a custom prompt or click a preset style button
+4. **Watch the Magic**: See your video transform in real-time
+5. **Experiment**: Change prompts anytime while streaming to see different effects
+6. **Stop Streaming**: Click "Stop" when finished
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+## Style Prompt Examples
 
-## What technologies are used for this project?
+- "Cyberpunk city, neon lights, futuristic"
+- "Studio Ghibli animation style, beautiful watercolor"
+- "Classical oil painting, renaissance art style"
+- "Pencil sketch, hand-drawn, artistic"
+- "Japanese anime style, vibrant colors"
 
-This project is built with:
+## Technical Details
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+- **Model**: Mirage V2 (mirage_v2)
+- **Resolution**: 1280x704 (16:9 aspect ratio)
+- **Frame Rate**: 25 FPS
+- **Technology**: WebRTC for low-latency streaming
+- **SDK**: [@decartai/sdk](https://www.npmjs.com/package/@decartai/sdk)
 
-## How can I deploy this project?
+## Troubleshooting
 
-Simply open [Lovable](https://lovable.dev/projects/48c7fbd4-e49c-4359-b8eb-750e9a3fe709) and click on Share -> Publish.
+### Camera Access Issues
+- Ensure your browser has permission to access the camera
+- Check if another application is using the camera
+- Try refreshing the page
 
-## Can I connect a custom domain to my Lovable project?
+### Connection Errors
+- Verify your API key is correct and active
+- Check your internet connection
+- Ensure the Decart API service is operational
 
-Yes, you can!
+### Performance Issues
+- Close other applications using the camera
+- Check your internet bandwidth
+- Try reducing other browser tabs/windows
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+## Resources
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/features/custom-domain#custom-domain)
+- [Decart API Documentation](https://docs.platform.decart.ai/models/realtime/video-restyling)
+- [Mirage V2 Model Reference](https://platform.decart.ai/models/mirage-lsd)
+- [Decart Platform](https://platform.decart.ai)
+
+## License
+
+This project is built with Lovable and uses the Decart API.
+
+## Support
+
+For issues related to:
+- **This application**: Open an issue in this repository
+- **Decart API**: Contact Decart support
+- **Lovable**: Visit [lovable.dev](https://lovable.dev)
