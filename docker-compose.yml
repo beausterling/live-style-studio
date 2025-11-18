@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  srs:
+    image: ossrs/srs:5
+    container_name: live-style-srs
+    ports:
+      - "1935:1935"   # RTMP port
+      - "1985:1985"   # HTTP API port
+      - "8080:8080"   # HTTP server port
+      - "8000:8000/udp" # WebRTC UDP port
+    volumes:
+      - ./srs.conf:/usr/local/srs/conf/srs.conf
+      - ./srs-logs:/usr/local/srs/objs/nginx/html
+    environment:
+      - CANDIDATE=${SRS_CANDIDATE:-host.docker.internal}
+    restart: unless-stopped
+    networks:
+      - srs-network
+
+networks:
+  srs-network:
+    driver: bridge
