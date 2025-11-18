@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
+import { TwitchStreamControls } from "@/components/TwitchStreamControls";
 
 type ConnectionState = "idle" | "connecting" | "connected" | "disconnected";
 
@@ -455,6 +456,14 @@ const Index = () => {
                 <p>Frame Rate: 25 FPS</p>
               </div>
             </Card>
+
+            {/* Twitch Streaming Controls */}
+            <TwitchStreamControls
+              videoStream={
+                remoteVideoRef.current?.srcObject as MediaStream | null
+              }
+              isVideoPlaying={connectionState === "connected"}
+            />
           </div>
         </div>
       </div>
