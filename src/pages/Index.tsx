@@ -4,10 +4,10 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
-import { 
-  Video, 
-  VideoOff, 
-  Wand2, 
+import {
+  Video,
+  VideoOff,
+  Wand2,
   Palette,
   FlipHorizontal,
   AlertCircle,
@@ -15,6 +15,7 @@ import {
   Loader2
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { supabase } from "@/integrations/supabase/client";
 
 type ConnectionState = "idle" | "connecting" | "connected" | "disconnected";
 
@@ -38,8 +39,40 @@ const Index = () => {
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const realtimeClientRef = useRef<any>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const [apiKey, setApiKey] = useState<string | null>(null);
 
-  const apiKey = import.meta.env.VITE_DECART_API_KEY;
+  // Fetch API key from Supabase edge function on mount
+  useEffect(() => {
+    const fetchApiKey = async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke('decart-proxy', {
+          body: { action: 'getApiKey' },
+        });
+
+        if (error) {
+          console.error('Error fetching API key:', error);
+          setError('Failed to retrieve API key from server');
+          toast({
+            title: "Configuration Error",
+            description: "Failed to retrieve API key from server.",
+            variant: "destructive",
+          });
+          return;
+        }
+
+        if (data?.apiKey) {
+          setApiKey(data.apiKey);
+        } else {
+          setError('No API key returned from server');
+        }
+      } catch (err: any) {
+        console.error('Error fetching API key:', err);
+        setError('Failed to connect to server');
+      }
+    };
+
+    fetchApiKey();
+  }, [toast]);
 
   useEffect(() => {
     return () => {
@@ -49,11 +82,11 @@ const Index = () => {
 
   const handleStart = async () => {
     if (!apiKey) {
-      const errorMsg = "VITE_DECART_API_KEY environment variable is not set";
+      const errorMsg = "Decart API key not available";
       setError(errorMsg);
       toast({
         title: "Configuration Error",
-        description: "Please set up your Decart API key in the environment variables.",
+        description: "API key is still loading or failed to load. Please try again.",
         variant: "destructive",
       });
       return;
