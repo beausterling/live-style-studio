@@ -5,7 +5,7 @@ import { Card } from "@/components/ui/card";
 import { useToast } from "@/hooks/use-toast";
 import {
   Radio,
-  RadioOff,
+  CircleSlash,
   Settings,
   Eye,
   EyeOff,
@@ -238,7 +238,7 @@ export function TwitchStreamControls({
               variant="destructive"
               className="flex-1"
             >
-              <RadioOff className="w-4 h-4 mr-2" />
+              <CircleSlash className="w-4 h-4 mr-2" />
               Stop Streaming
             </Button>
           )}
