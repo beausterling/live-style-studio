@@ -26,7 +26,8 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
-type ConnectionState = "idle" | "selecting-camera" | "connecting" | "connected" | "disconnected";
+type CameraState = "idle" | "selecting-camera" | "camera-open";
+type AIState = "idle" | "connecting" | "connected" | "disconnected";
 
 const PRESET_STYLES = [
   { label: "Cyberpunk", prompt: "Cyberpunk city, neon lights, futuristic" },
@@ -38,7 +39,8 @@ const PRESET_STYLES = [
 
 const Index = () => {
   const { toast } = useToast();
-  const [connectionState, setConnectionState] = useState<ConnectionState>("idle");
+  const [cameraState, setCameraState] = useState<CameraState>("idle");
+  const [aiState, setAIState] = useState<AIState>("idle");
   const [currentPrompt, setCurrentPrompt] = useState("");
   const [inputPrompt, setInputPrompt] = useState("");
   const [isMirrored, setIsMirrored] = useState(false);
@@ -87,7 +89,7 @@ const Index = () => {
 
   useEffect(() => {
     return () => {
-      handleStop();
+      handleStopEverything();
     };
   }, []);
 
@@ -122,11 +124,11 @@ const Index = () => {
     }
 
     if (cameras.length === 1) {
-      // Only one camera, start immediately
-      await handleStart(cameras[0].deviceId);
+      // Only one camera, open it immediately
+      await openCamera(cameras[0].deviceId);
     } else {
       // Multiple cameras, show selector
-      setConnectionState("selecting-camera");
+      setCameraState("selecting-camera");
     }
   };
 
@@ -140,28 +142,17 @@ const Index = () => {
       return;
     }
 
-    await handleStart(selectedCameraId);
+    await openCamera(selectedCameraId);
   };
 
-  const handleStart = async (deviceId?: string) => {
-    if (!apiKey) {
-      const errorMsg = "Decart API key not available";
-      setError(errorMsg);
-      toast({
-        title: "Configuration Error",
-        description: "API key is still loading or failed to load. Please try again.",
-        variant: "destructive",
-      });
-      return;
-    }
-
+  // Open camera without starting AI
+  const openCamera = async (deviceId?: string) => {
     try {
-      setConnectionState("connecting");
       setError(null);
 
       const model = models.realtime("mirage_v2");
 
-      // Get user's camera stream with model specifications
+      // Get user's camera stream
       const constraints: MediaStreamConstraints = {
         audio: true,
         video: {
@@ -181,12 +172,61 @@ const Index = () => {
         localVideoRef.current.srcObject = stream;
       }
 
-      // Create client and connect
+      setCameraState("camera-open");
+
+      toast({
+        title: "Camera Ready",
+        description: "Click 'Start AI Restyling' to begin transformation",
+      });
+
+    } catch (err: any) {
+      console.error("Error opening camera:", err);
+      const errorMessage = err.message || "Failed to open camera";
+      setError(errorMessage);
+      setCameraState("idle");
+
+      toast({
+        title: "Camera Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  };
+
+  // Start AI restyling (uses API credits)
+  const handleStartAI = async () => {
+    if (!apiKey) {
+      const errorMsg = "Decart API key not available";
+      setError(errorMsg);
+      toast({
+        title: "Configuration Error",
+        description: "API key is still loading or failed to load. Please try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (!localStreamRef.current) {
+      toast({
+        title: "No Camera",
+        description: "Please open your camera first.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    try {
+      setAIState("connecting");
+      setError(null);
+
+      const model = models.realtime("mirage_v2");
+
+      // Create client and connect to Decart API
       const client = createDecartClient({
         apiKey: apiKey
       });
 
-      const realtimeClient = await client.realtime.connect(stream, {
+      const realtimeClient = await client.realtime.connect(localStreamRef.current, {
         model,
         onRemoteStream: (transformedStream) => {
           if (remoteVideoRef.current) {
@@ -200,13 +240,13 @@ const Index = () => {
       // Set up event handlers
       realtimeClient.on("connectionChange", (...args: any[]) => {
         const state = args[0] as string;
-        console.log(`Connection state: ${state}`);
-        setConnectionState(state as ConnectionState);
+        console.log(`AI Connection state: ${state}`);
+        setAIState(state as AIState);
 
         if (state === "connected") {
           toast({
-            title: "Connected",
-            description: "Video stream is live!",
+            title: "AI Restyling Active",
+            description: "Real-time transformation is now live!",
           });
         }
       });
@@ -216,7 +256,7 @@ const Index = () => {
         console.error("Decart SDK error:", error.code, error.message);
         setError(`SDK Error: ${error.message}`);
         toast({
-          title: "Stream Error",
+          title: "AI Error",
           description: error.message,
           variant: "destructive",
         });
@@ -228,25 +268,44 @@ const Index = () => {
       }
 
     } catch (err: any) {
-      console.error("Error starting stream:", err);
-      const errorMessage = err.message || "Failed to start video stream";
+      console.error("Error starting AI:", err);
+      const errorMessage = err.message || "Failed to start AI restyling";
       setError(errorMessage);
-      setConnectionState("idle");
+      setAIState("idle");
 
       toast({
-        title: "Error",
+        title: "AI Error",
         description: errorMessage,
         variant: "destructive",
       });
     }
   };
 
-  const handleStop = () => {
+  const handleStopAI = () => {
     if (realtimeClientRef.current) {
       realtimeClientRef.current.disconnect();
       realtimeClientRef.current = null;
     }
 
+    if (remoteVideoRef.current) {
+      remoteVideoRef.current.srcObject = null;
+    }
+
+    setAIState("idle");
+    toast({
+      title: "AI Stopped",
+      description: "AI restyling stopped. Camera still active.",
+    });
+  };
+
+  const handleStopCamera = () => {
+    // Stop AI first if running
+    if (realtimeClientRef.current) {
+      realtimeClientRef.current.disconnect();
+      realtimeClientRef.current = null;
+    }
+
+    // Stop camera
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(track => track.stop());
       localStreamRef.current = null;
@@ -260,11 +319,16 @@ const Index = () => {
       remoteVideoRef.current.srcObject = null;
     }
 
-    setConnectionState("idle");
+    setCameraState("idle");
+    setAIState("idle");
     toast({
-      title: "Disconnected",
-      description: "Video stream stopped.",
+      title: "Camera Closed",
+      description: "Camera and AI stopped.",
     });
+  };
+
+  const handleStopEverything = () => {
+    handleStopCamera();
   };
 
   const handleSetPrompt = () => {
@@ -272,7 +336,7 @@ const Index = () => {
 
     setCurrentPrompt(inputPrompt);
 
-    if (realtimeClientRef.current && connectionState === "connected") {
+    if (realtimeClientRef.current && aiState === "connected") {
       realtimeClientRef.current.setPrompt(inputPrompt);
       toast({
         title: "Style Updated",
@@ -285,7 +349,7 @@ const Index = () => {
     setInputPrompt(preset.prompt);
     setCurrentPrompt(preset.prompt);
 
-    if (realtimeClientRef.current && connectionState === "connected") {
+    if (realtimeClientRef.current && aiState === "connected") {
       realtimeClientRef.current.setPrompt(preset.prompt);
       toast({
         title: "Style Applied",
@@ -298,12 +362,13 @@ const Index = () => {
     const newMirrorState = !isMirrored;
     setIsMirrored(newMirrorState);
 
-    if (realtimeClientRef.current && connectionState === "connected") {
+    if (realtimeClientRef.current && aiState === "connected") {
       realtimeClientRef.current.setMirror(newMirrorState);
     }
   };
 
-  const isStreaming = connectionState === "connected" || connectionState === "connecting";
+  const isCameraOpen = cameraState === "camera-open";
+  const isAIActive = aiState === "connected" || aiState === "connecting";
 
   return (
     <div className="min-h-screen bg-background p-6">
@@ -336,17 +401,8 @@ const Index = () => {
                   )}
                 />
 
-                {/* Connection Status Overlay */}
-                {connectionState === "connecting" && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
-                    <div className="text-center">
-                      <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
-                      <p className="text-lg font-medium">Connecting to stream...</p>
-                    </div>
-                  </div>
-                )}
-
-                {connectionState === "idle" && (
+                {/* Camera State Overlays */}
+                {cameraState === "idle" && (
                   <div className="absolute inset-0 flex items-center justify-center bg-card/50 backdrop-blur-sm">
                     <div className="text-center">
                       <Button
@@ -358,13 +414,13 @@ const Index = () => {
                         Open Camera
                       </Button>
                       <p className="text-sm text-muted-foreground mt-4">
-                        Click to start streaming
+                        Start by opening your camera
                       </p>
                     </div>
                   </div>
                 )}
 
-                {connectionState === "selecting-camera" && (
+                {cameraState === "selecting-camera" && (
                   <div className="absolute inset-0 flex items-center justify-center bg-background/95 backdrop-blur-sm">
                     <Card className="p-6 max-w-md w-full mx-4">
                       <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
@@ -407,11 +463,25 @@ const Index = () => {
                   </div>
                 )}
 
-                {/* Live Indicator */}
-                {connectionState === "connected" && (
+                {/* Camera Live Indicator */}
+                {isCameraOpen && (
                   <div className="absolute top-4 left-4 flex items-center gap-2 bg-background/90 backdrop-blur-sm px-4 py-2 rounded-full border border-border">
-                    <div className="w-3 h-3 rounded-full bg-primary live-indicator"></div>
-                    <span className="text-sm font-medium">Your Camera</span>
+                    <div className="w-3 h-3 rounded-full bg-green-500 animate-pulse"></div>
+                    <span className="text-sm font-medium">Camera Active</span>
+                  </div>
+                )}
+
+                {/* Start AI Button Overlay - shows when camera is open but AI is not active */}
+                {isCameraOpen && !isAIActive && (
+                  <div className="absolute bottom-4 left-4 right-4">
+                    <Button
+                      size="lg"
+                      onClick={handleStartAI}
+                      className="w-full gap-2 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                    >
+                      <Wand2 className="w-5 h-5" />
+                      Start AI Restyling
+                    </Button>
                   </div>
                 )}
               </div>
@@ -430,26 +500,38 @@ const Index = () => {
                   )}
                 />
 
-                {connectionState !== "connected" && (
+                {/* AI Connecting State */}
+                {aiState === "connecting" && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
+                    <div className="text-center">
+                      <Loader2 className="w-12 h-12 animate-spin text-primary mx-auto mb-4" />
+                      <p className="text-lg font-medium">Connecting to AI...</p>
+                      <p className="text-sm text-muted-foreground mt-2">Starting transformation</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Idle State */}
+                {aiState === "idle" && (
                   <div className="absolute inset-0 flex items-center justify-center bg-muted/50 backdrop-blur-sm">
                     <div className="text-center text-muted-foreground">
                       <Wand2 className="w-16 h-16 mx-auto mb-4 opacity-50" />
                       <p className="text-lg font-medium">AI Restyled Output</p>
-                      <p className="text-sm mt-2">Transformed video will appear here</p>
+                      <p className="text-sm mt-2">Click &quot;Start AI Restyling&quot; to begin</p>
                     </div>
                   </div>
                 )}
 
                 {/* Live Indicator for Restyled Output */}
-                {connectionState === "connected" && (
+                {aiState === "connected" && (
                   <div className="absolute top-4 left-4 flex items-center gap-2 bg-background/90 backdrop-blur-sm px-4 py-2 rounded-full border border-border">
                     <div className="w-3 h-3 rounded-full bg-primary live-indicator"></div>
-                    <span className="text-sm font-medium">AI Restyled</span>
+                    <span className="text-sm font-medium">AI Active</span>
                   </div>
                 )}
 
                 {/* Current Prompt Overlay */}
-                {currentPrompt && connectionState === "connected" && (
+                {currentPrompt && aiState === "connected" && (
                   <div className="absolute bottom-4 left-4 right-4 bg-background/90 backdrop-blur-sm px-4 py-2 rounded-lg border border-border">
                     <div className="flex items-center gap-2">
                       <Palette className="w-4 h-4 text-primary" />
@@ -463,47 +545,83 @@ const Index = () => {
 
           {/* Controls Panel */}
           <div className="space-y-4">
-            {/* Connection Status Card */}
+            {/* Status Cards */}
             <Card className="p-4 border-border">
               <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
-                {connectionState === "connected" ? (
-                  <CheckCircle2 className="w-4 h-4 text-primary" />
-                ) : (
-                  <AlertCircle className="w-4 h-4 text-muted-foreground" />
-                )}
-                Connection Status
+                <Camera className="w-4 h-4" />
+                Camera Status
               </h3>
               <div className="space-y-3">
                 <div className={cn(
                   "px-3 py-2 rounded-lg text-sm font-medium text-center",
-                  connectionState === "connected" && "bg-primary/10 text-primary border border-primary/20",
-                  connectionState === "connecting" && "bg-secondary text-secondary-foreground",
-                  (connectionState === "idle" || connectionState === "selecting-camera") && "bg-muted text-muted-foreground"
+                  isCameraOpen && "bg-green-500/10 text-green-600 border border-green-500/20",
+                  !isCameraOpen && "bg-muted text-muted-foreground"
                 )}>
-                  {connectionState === "connected" && "Connected"}
-                  {connectionState === "connecting" && "Connecting..."}
-                  {connectionState === "selecting-camera" && "Selecting Camera"}
-                  {connectionState === "idle" && "Not Connected"}
+                  {isCameraOpen ? "Camera Open" : "Camera Closed"}
                 </div>
 
                 <div className="flex gap-2">
-                  {!isStreaming ? (
+                  {!isCameraOpen ? (
                     <Button
                       onClick={handleOpenCamera}
                       className="flex-1"
-                      disabled={!apiKey}
                     >
-                      <Video className="w-4 h-4 mr-2" />
-                      Start
+                      <Camera className="w-4 h-4 mr-2" />
+                      Open Camera
                     </Button>
                   ) : (
                     <Button
-                      onClick={handleStop}
+                      onClick={handleStopCamera}
+                      variant="outline"
+                      className="flex-1"
+                    >
+                      <VideoOff className="w-4 h-4 mr-2" />
+                      Close Camera
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4 border-border">
+              <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+                {aiState === "connected" ? (
+                  <CheckCircle2 className="w-4 h-4 text-primary" />
+                ) : (
+                  <Wand2 className="w-4 h-4 text-muted-foreground" />
+                )}
+                AI Status
+              </h3>
+              <div className="space-y-3">
+                <div className={cn(
+                  "px-3 py-2 rounded-lg text-sm font-medium text-center",
+                  aiState === "connected" && "bg-primary/10 text-primary border border-primary/20",
+                  aiState === "connecting" && "bg-secondary text-secondary-foreground",
+                  aiState === "idle" && "bg-muted text-muted-foreground"
+                )}>
+                  {aiState === "connected" && "AI Active"}
+                  {aiState === "connecting" && "Connecting AI..."}
+                  {aiState === "idle" && "AI Inactive"}
+                </div>
+
+                <div className="flex gap-2">
+                  {!isAIActive ? (
+                    <Button
+                      onClick={handleStartAI}
+                      className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700"
+                      disabled={!isCameraOpen || !apiKey}
+                    >
+                      <Wand2 className="w-4 h-4 mr-2" />
+                      Start AI
+                    </Button>
+                  ) : (
+                    <Button
+                      onClick={handleStopAI}
                       variant="destructive"
                       className="flex-1"
                     >
                       <VideoOff className="w-4 h-4 mr-2" />
-                      Stop
+                      Stop AI
                     </Button>
                   )}
                 </div>
@@ -529,12 +647,12 @@ const Index = () => {
                     onChange={(e) => setInputPrompt(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleSetPrompt()}
                     placeholder="Enter a style prompt..."
-                    disabled={!isStreaming}
+                    disabled={!isAIActive}
                     className="bg-secondary border-border"
                   />
                   <Button
                     onClick={handleSetPrompt}
-                    disabled={!inputPrompt.trim() || !isStreaming}
+                    disabled={!inputPrompt.trim() || !isAIActive}
                     size="icon"
                   >
                     <Wand2 className="w-4 h-4" />
@@ -550,7 +668,7 @@ const Index = () => {
                         onClick={() => handlePresetStyle(preset)}
                         variant="outline"
                         size="sm"
-                        disabled={!isStreaming}
+                        disabled={!isAIActive}
                         className="text-xs"
                       >
                         {preset.label}
@@ -569,7 +687,7 @@ const Index = () => {
                   onClick={handleToggleMirror}
                   variant="outline"
                   className="w-full justify-start"
-                  disabled={!isStreaming}
+                  disabled={!isCameraOpen}
                 >
                   <FlipHorizontal className="w-4 h-4 mr-2" />
                   {isMirrored ? "Unmirror Camera" : "Mirror Camera"}
@@ -592,7 +710,7 @@ const Index = () => {
               videoStream={
                 remoteVideoRef.current?.srcObject as MediaStream | null
               }
-              isVideoPlaying={connectionState === "connected"}
+              isVideoPlaying={aiState === "connected"}
             />
           </div>
         </div>
