@@ -418,14 +418,8 @@ const Index = () => {
             </Card>
 
             {/* AI Restyled Output (Secondary Display) */}
-            <Card className="relative overflow-hidden border-border">
-              <div className="flex items-center justify-between p-4 border-b border-border">
-                <h3 className="text-sm font-medium flex items-center gap-2">
-                  <Wand2 className="w-4 h-4 text-primary" />
-                  AI Restyled Output
-                </h3>
-              </div>
-              <div className="aspect-video bg-muted relative max-h-64">
+            <Card className="relative overflow-hidden video-container border-video-border">
+              <div className="aspect-video bg-muted relative">
                 <video
                   ref={remoteVideoRef}
                   autoPlay
@@ -437,20 +431,29 @@ const Index = () => {
                 />
 
                 {connectionState !== "connected" && (
-                  <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
+                  <div className="absolute inset-0 flex items-center justify-center bg-muted/50 backdrop-blur-sm">
                     <div className="text-center text-muted-foreground">
-                      <Wand2 className="w-12 h-12 mx-auto mb-2 opacity-50" />
-                      <p className="text-sm">Restyled video will appear here</p>
+                      <Wand2 className="w-16 h-16 mx-auto mb-4 opacity-50" />
+                      <p className="text-lg font-medium">AI Restyled Output</p>
+                      <p className="text-sm mt-2">Transformed video will appear here</p>
                     </div>
+                  </div>
+                )}
+
+                {/* Live Indicator for Restyled Output */}
+                {connectionState === "connected" && (
+                  <div className="absolute top-4 left-4 flex items-center gap-2 bg-background/90 backdrop-blur-sm px-4 py-2 rounded-full border border-border">
+                    <div className="w-3 h-3 rounded-full bg-primary live-indicator"></div>
+                    <span className="text-sm font-medium">AI Restyled</span>
                   </div>
                 )}
 
                 {/* Current Prompt Overlay */}
                 {currentPrompt && connectionState === "connected" && (
-                  <div className="absolute bottom-2 left-2 right-2 bg-background/90 backdrop-blur-sm px-3 py-1.5 rounded-md border border-border">
+                  <div className="absolute bottom-4 left-4 right-4 bg-background/90 backdrop-blur-sm px-4 py-2 rounded-lg border border-border">
                     <div className="flex items-center gap-2">
-                      <Palette className="w-3 h-3 text-primary" />
-                      <span className="text-xs font-medium truncate">{currentPrompt}</span>
+                      <Palette className="w-4 h-4 text-primary" />
+                      <span className="text-sm font-medium">{currentPrompt}</span>
                     </div>
                   </div>
                 )}
