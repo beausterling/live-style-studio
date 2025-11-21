@@ -30,11 +30,36 @@ type CameraState = "idle" | "selecting-camera" | "camera-open";
 type AIState = "idle" | "connecting" | "connected" | "disconnected";
 
 const PRESET_STYLES = [
-  { label: "Cyberpunk", prompt: "Cyberpunk city, neon lights, futuristic" },
-  { label: "Studio Ghibli", prompt: "Studio Ghibli animation style, beautiful watercolor" },
-  { label: "Oil Painting", prompt: "Classical oil painting, renaissance art style" },
-  { label: "Sketch", prompt: "Pencil sketch, hand-drawn, artistic" },
-  { label: "Anime", prompt: "Japanese anime style, vibrant colors" },
+  {
+    label: "Cyberpunk",
+    prompt: "Cyberpunk city, neon lights, futuristic",
+    description: "Neon-lit cyberpunk aesthetic with futuristic vibes",
+    emoji: "🌆"
+  },
+  {
+    label: "Studio Ghibli",
+    prompt: "Studio Ghibli animation style, beautiful watercolor",
+    description: "Dreamy watercolor animation like Spirited Away",
+    emoji: "🎨"
+  },
+  {
+    label: "Oil Painting",
+    prompt: "Classical oil painting, renaissance art style",
+    description: "Classic renaissance oil painting style",
+    emoji: "🖼️"
+  },
+  {
+    label: "Sketch",
+    prompt: "Pencil sketch, hand-drawn, artistic",
+    description: "Hand-drawn pencil sketch artwork",
+    emoji: "✏️"
+  },
+  {
+    label: "Anime",
+    prompt: "Japanese anime style, vibrant colors",
+    description: "Vibrant Japanese anime character style",
+    emoji: "🎭"
+  },
 ];
 
 const Index = () => {
@@ -47,6 +72,8 @@ const Index = () => {
   const [error, setError] = useState<string | null>(null);
   const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
   const [selectedCameraId, setSelectedCameraId] = useState<string>("");
+  const [selectedPreset, setSelectedPreset] = useState<typeof PRESET_STYLES[0] | null>(null);
+  const [showPresetPreview, setShowPresetPreview] = useState(false);
 
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
@@ -262,9 +289,12 @@ const Index = () => {
         });
       });
 
-      // Set initial prompt if available
+      // Set initial prompt if available (from selected preset)
       if (currentPrompt) {
         realtimeClient.setPrompt(currentPrompt);
+      } else if (selectedPreset) {
+        realtimeClient.setPrompt(selectedPreset.prompt);
+        setCurrentPrompt(selectedPreset.prompt);
       }
 
     } catch (err: any) {
@@ -345,15 +375,24 @@ const Index = () => {
     }
   };
 
-  const handlePresetStyle = (preset: typeof PRESET_STYLES[0]) => {
+  const handlePresetClick = (preset: typeof PRESET_STYLES[0]) => {
+    setSelectedPreset(preset);
     setInputPrompt(preset.prompt);
     setCurrentPrompt(preset.prompt);
+    setShowPresetPreview(true);
 
+    // If AI is already active, apply the style immediately
     if (realtimeClientRef.current && aiState === "connected") {
       realtimeClientRef.current.setPrompt(preset.prompt);
       toast({
         title: "Style Applied",
         description: preset.label,
+      });
+    } else {
+      // Otherwise just show preview
+      toast({
+        title: "Style Selected",
+        description: `${preset.label} - Will apply when AI starts`,
       });
     }
   };
@@ -634,50 +673,78 @@ const Index = () => {
               )}
             </Card>
 
-            {/* Style Controls */}
+            {/* Style Presets - Always Available */}
             <Card className="p-4 border-border">
               <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
                 <Palette className="w-4 h-4" />
-                Style Prompt
+                Choose Style
               </h3>
               <div className="space-y-3">
+                {/* Selected Preset Display */}
+                {selectedPreset && (
+                  <div className="p-3 bg-primary/5 border border-primary/20 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <span className="text-2xl">{selectedPreset.emoji}</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-medium">{selectedPreset.label}</p>
+                        <p className="text-xs text-muted-foreground">{selectedPreset.description}</p>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Preset Grid */}
+                <div className="grid grid-cols-2 gap-2">
+                  {PRESET_STYLES.map((preset) => (
+                    <Button
+                      key={preset.label}
+                      onClick={() => handlePresetClick(preset)}
+                      variant={selectedPreset?.label === preset.label ? "default" : "outline"}
+                      size="sm"
+                      className={cn(
+                        "flex flex-col h-auto py-3 gap-1",
+                        selectedPreset?.label === preset.label && "border-primary"
+                      )}
+                    >
+                      <span className="text-xl">{preset.emoji}</span>
+                      <span className="text-xs font-medium">{preset.label}</span>
+                    </Button>
+                  ))}
+                </div>
+
+                <p className="text-xs text-muted-foreground text-center">
+                  {aiState === "connected"
+                    ? "Style will update in real-time"
+                    : "Select a style before starting AI"}
+                </p>
+              </div>
+            </Card>
+
+            {/* Custom Style Prompt - Only when AI is active */}
+            {isAIActive && (
+              <Card className="p-4 border-border">
+                <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+                  <Wand2 className="w-4 h-4" />
+                  Custom Prompt
+                </h3>
                 <div className="flex gap-2">
                   <Input
                     value={inputPrompt}
                     onChange={(e) => setInputPrompt(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleSetPrompt()}
-                    placeholder="Enter a style prompt..."
-                    disabled={!isAIActive}
+                    placeholder="Enter custom style..."
                     className="bg-secondary border-border"
                   />
                   <Button
                     onClick={handleSetPrompt}
-                    disabled={!inputPrompt.trim() || !isAIActive}
+                    disabled={!inputPrompt.trim()}
                     size="icon"
                   >
                     <Wand2 className="w-4 h-4" />
                   </Button>
                 </div>
-
-                <div className="space-y-2">
-                  <p className="text-xs text-muted-foreground">Quick Presets</p>
-                  <div className="grid grid-cols-2 gap-2">
-                    {PRESET_STYLES.map((preset) => (
-                      <Button
-                        key={preset.label}
-                        onClick={() => handlePresetStyle(preset)}
-                        variant="outline"
-                        size="sm"
-                        disabled={!isAIActive}
-                        className="text-xs"
-                      >
-                        {preset.label}
-                      </Button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-            </Card>
+              </Card>
+            )}
 
             {/* Additional Controls */}
             <Card className="p-4 border-border">
