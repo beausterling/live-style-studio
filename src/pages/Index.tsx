@@ -13,7 +13,9 @@ import {
   AlertCircle,
   CheckCircle2,
   Loader2,
-  Camera
+  Camera,
+  Mic,
+  MicOff
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
@@ -28,6 +30,65 @@ import {
 
 type CameraState = "idle" | "selecting-camera" | "camera-open";
 type AIState = "idle" | "connecting" | "connected" | "disconnected";
+type MicState = "idle" | "selecting-mic" | "active";
+
+// Waveform Visualization Component
+const WaveformVisualizer = ({ analyser }: { analyser: AnalyserNode | null }) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (!analyser || !canvasRef.current) return;
+
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const draw = () => {
+      const animationId = requestAnimationFrame(draw);
+
+      analyser.getByteFrequencyData(dataArray);
+
+      ctx.fillStyle = 'rgb(0, 0, 0, 0.2)';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      const barWidth = (canvas.width / bufferLength) * 2.5;
+      let x = 0;
+
+      for (let i = 0; i < bufferLength; i++) {
+        const barHeight = (dataArray[i] / 255) * canvas.height;
+
+        const gradient = ctx.createLinearGradient(0, canvas.height - barHeight, 0, canvas.height);
+        gradient.addColorStop(0, 'rgb(147, 51, 234)'); // purple-600
+        gradient.addColorStop(1, 'rgb(219, 39, 119)'); // pink-600
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+
+        x += barWidth + 1;
+      }
+    };
+
+    draw();
+
+    return () => {
+      if (typeof animationId !== 'undefined') {
+        cancelAnimationFrame(animationId);
+      }
+    };
+  }, [analyser]);
+
+  return (
+    <canvas
+      ref={canvasRef}
+      width={200}
+      height={40}
+      className="w-full h-10 rounded"
+    />
+  );
+};
 
 const PRESET_STYLES = [
   {
@@ -75,10 +136,19 @@ const Index = () => {
   const [selectedPreset, setSelectedPreset] = useState<typeof PRESET_STYLES[0] | null>(null);
   const [showPresetPreview, setShowPresetPreview] = useState(false);
 
+  // Microphone state
+  const [micState, setMicState] = useState<MicState>("idle");
+  const [availableMics, setAvailableMics] = useState<MediaDeviceInfo[]>([]);
+  const [selectedMicId, setSelectedMicId] = useState<string>("");
+
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const realtimeClientRef = useRef<any>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const animationFrameRef = useRef<number | null>(null);
   const [apiKey, setApiKey] = useState<string | null>(null);
 
   // Fetch API key from Supabase edge function on mount
@@ -172,16 +242,16 @@ const Index = () => {
     await openCamera(selectedCameraId);
   };
 
-  // Open camera without starting AI
+  // Open camera without starting AI (video only, no audio)
   const openCamera = async (deviceId?: string) => {
     try {
       setError(null);
 
       const model = models.realtime("mirage_v2");
 
-      // Get user's camera stream
+      // Get user's camera stream (video only - audio handled separately)
       const constraints: MediaStreamConstraints = {
-        audio: true,
+        audio: false,
         video: {
           deviceId: deviceId ? { exact: deviceId } : undefined,
           frameRate: model.fps,
@@ -359,6 +429,137 @@ const Index = () => {
 
   const handleStopEverything = () => {
     handleStopCamera();
+    handleStopMic();
+  };
+
+  // Enumerate microphones
+  const enumerateMics = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const audioDevices = devices.filter(device => device.kind === 'audioinput');
+      setAvailableMics(audioDevices);
+
+      if (audioDevices.length > 0) {
+        setSelectedMicId(audioDevices[0].deviceId);
+      }
+
+      return audioDevices;
+    } catch (err) {
+      console.error('Error enumerating microphones:', err);
+      return [];
+    }
+  };
+
+  const handleToggleMic = async () => {
+    if (micState === "active") {
+      handleStopMic();
+    } else {
+      const mics = await enumerateMics();
+
+      if (mics.length === 0) {
+        toast({
+          title: "No Microphone Found",
+          description: "Please connect a microphone and try again.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      if (mics.length === 1) {
+        // Only one mic, start it immediately
+        await startMic(mics[0].deviceId);
+      } else {
+        // Multiple mics, show selector
+        setMicState("selecting-mic");
+      }
+    }
+  };
+
+  const handleMicSelected = async () => {
+    if (!selectedMicId) {
+      toast({
+        title: "No Microphone Selected",
+        description: "Please select a microphone.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    await startMic(selectedMicId);
+  };
+
+  const startMic = async (deviceId?: string) => {
+    try {
+      const constraints: MediaStreamConstraints = {
+        audio: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+        video: false,
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      micStreamRef.current = stream;
+
+      // Set up audio visualization
+      const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+      const analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(stream);
+
+      analyser.fftSize = 256;
+      source.connect(analyser);
+
+      audioContextRef.current = audioContext;
+      analyserRef.current = analyser;
+
+      setMicState("active");
+
+      toast({
+        title: "Microphone Active",
+        description: "Audio will be included in livestream",
+      });
+
+    } catch (err: any) {
+      console.error("Error starting microphone:", err);
+      const errorMessage = err.message || "Failed to start microphone";
+      setMicState("idle");
+
+      toast({
+        title: "Microphone Error",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleStopMic = () => {
+    // Stop animation frame
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+      animationFrameRef.current = null;
+    }
+
+    // Stop audio context
+    if (audioContextRef.current) {
+      audioContextRef.current.close();
+      audioContextRef.current = null;
+    }
+
+    // Stop microphone stream
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach(track => track.stop());
+      micStreamRef.current = null;
+    }
+
+    analyserRef.current = null;
+    setMicState("idle");
+
+    toast({
+      title: "Microphone Stopped",
+      description: "Audio capture stopped",
+    });
   };
 
   const handleSetPrompt = () => {
@@ -490,7 +691,7 @@ const Index = () => {
                             Start
                           </Button>
                           <Button
-                            onClick={() => setConnectionState("idle")}
+                            onClick={() => setCameraState("idle")}
                             variant="outline"
                             className="flex-1"
                           >
@@ -533,6 +734,7 @@ const Index = () => {
                   ref={remoteVideoRef}
                   autoPlay
                   playsInline
+                  muted
                   className={cn(
                     "w-full h-full object-contain",
                     isMirrored && "scale-x-[-1]"
@@ -746,6 +948,96 @@ const Index = () => {
               </Card>
             )}
 
+            {/* Microphone Controls */}
+            <Card className="p-4 border-border">
+              <h3 className="text-sm font-medium mb-3 flex items-center gap-2">
+                {micState === "active" ? (
+                  <Mic className="w-4 h-4 text-primary" />
+                ) : (
+                  <MicOff className="w-4 h-4 text-muted-foreground" />
+                )}
+                Microphone
+              </h3>
+              <div className="space-y-3">
+                <div className={cn(
+                  "px-3 py-2 rounded-lg text-sm font-medium text-center",
+                  micState === "active" && "bg-primary/10 text-primary border border-primary/20",
+                  micState === "idle" && "bg-muted text-muted-foreground"
+                )}>
+                  {micState === "active" ? "Microphone Active" : "Microphone Off"}
+                </div>
+
+                {micState === "active" && (
+                  <div className="p-2 bg-card border border-border rounded-lg">
+                    <WaveformVisualizer analyser={analyserRef.current} />
+                  </div>
+                )}
+
+                {micState === "selecting-mic" && (
+                  <div className="space-y-2">
+                    <Select
+                      value={selectedMicId}
+                      onValueChange={setSelectedMicId}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Choose a microphone" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {availableMics.map((mic) => (
+                          <SelectItem key={mic.deviceId} value={mic.deviceId}>
+                            {mic.label || `Microphone ${mic.deviceId.substring(0, 8)}`}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={handleMicSelected}
+                        className="flex-1"
+                        size="sm"
+                      >
+                        Start
+                      </Button>
+                      <Button
+                        onClick={() => setMicState("idle")}
+                        variant="outline"
+                        className="flex-1"
+                        size="sm"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {micState !== "selecting-mic" && (
+                  <Button
+                    onClick={handleToggleMic}
+                    variant={micState === "active" ? "outline" : "default"}
+                    className="w-full"
+                  >
+                    {micState === "active" ? (
+                      <>
+                        <MicOff className="w-4 h-4 mr-2" />
+                        Stop Microphone
+                      </>
+                    ) : (
+                      <>
+                        <Mic className="w-4 h-4 mr-2" />
+                        Start Microphone
+                      </>
+                    )}
+                  </Button>
+                )}
+
+                <p className="text-xs text-muted-foreground text-center">
+                  {micState === "active"
+                    ? "Audio will be included in livestream"
+                    : "Enable microphone for livestream audio"}
+                </p>
+              </div>
+            </Card>
+
             {/* Additional Controls */}
             <Card className="p-4 border-border">
               <h3 className="text-sm font-medium mb-3">Camera Settings</h3>
@@ -777,6 +1069,7 @@ const Index = () => {
               videoStream={
                 remoteVideoRef.current?.srcObject as MediaStream | null
               }
+              audioStream={micStreamRef.current}
               isVideoPlaying={aiState === "connected"}
             />
           </div>

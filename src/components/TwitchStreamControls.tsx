@@ -24,11 +24,13 @@ import {
 
 interface TwitchStreamControlsProps {
   videoStream: MediaStream | null;
+  audioStream: MediaStream | null;
   isVideoPlaying: boolean;
 }
 
 export function TwitchStreamControls({
   videoStream,
+  audioStream,
   isVideoPlaying,
 }: TwitchStreamControlsProps) {
   const { toast } = useToast();
@@ -107,8 +109,26 @@ export function TwitchStreamControls({
     }
 
     try {
+      // Combine video and audio streams if audio is available
+      let combinedStream = videoStream;
+
+      if (audioStream) {
+        // Create a new MediaStream with video tracks from videoStream and audio tracks from audioStream
+        combinedStream = new MediaStream();
+
+        // Add video tracks
+        videoStream.getVideoTracks().forEach(track => {
+          combinedStream.addTrack(track);
+        });
+
+        // Add audio tracks from the separate microphone stream
+        audioStream.getAudioTracks().forEach(track => {
+          combinedStream.addTrack(track);
+        });
+      }
+
       await streamingService.startStreaming(
-        videoStream,
+        combinedStream,
         streamKey,
         (newStats) => {
           setStats(newStats);
@@ -117,7 +137,7 @@ export function TwitchStreamControls({
       setIsStreaming(true);
       toast({
         title: "Streaming Started",
-        description: "Now live on Twitch!",
+        description: audioStream ? "Now live on Twitch with audio!" : "Now live on Twitch (video only)",
       });
     } catch (error: any) {
       console.error("Failed to start streaming:", error);
