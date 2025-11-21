@@ -329,6 +329,12 @@ const Index = () => {
           if (remoteVideoRef.current) {
             remoteVideoRef.current.srcObject = transformedStream;
           }
+          // Set state to connected as soon as we receive the remote stream
+          setAIState("connected");
+          toast({
+            title: "AI Restyling Active",
+            description: "Real-time transformation is now live!",
+          });
         }
       });
 
@@ -338,13 +344,9 @@ const Index = () => {
       realtimeClient.on("connectionChange", (...args: any[]) => {
         const state = args[0] as string;
         console.log(`AI Connection state: ${state}`);
-        setAIState(state as AIState);
-
-        if (state === "connected") {
-          toast({
-            title: "AI Restyling Active",
-            description: "Real-time transformation is now live!",
-          });
+        // Only update state if it's not already connected (to avoid overriding the state set in onRemoteStream)
+        if (state !== "connected") {
+          setAIState(state as AIState);
         }
       });
 
