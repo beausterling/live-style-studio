@@ -12,13 +12,21 @@ import {
   FlipHorizontal,
   AlertCircle,
   CheckCircle2,
-  Loader2
+  Loader2,
+  Camera
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { supabase } from "@/integrations/supabase/client";
 import { TwitchStreamControls } from "@/components/TwitchStreamControls";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
-type ConnectionState = "idle" | "connecting" | "connected" | "disconnected";
+type ConnectionState = "idle" | "selecting-camera" | "connecting" | "connected" | "disconnected";
 
 const PRESET_STYLES = [
   { label: "Cyberpunk", prompt: "Cyberpunk city, neon lights, futuristic" },
@@ -35,7 +43,9 @@ const Index = () => {
   const [inputPrompt, setInputPrompt] = useState("");
   const [isMirrored, setIsMirrored] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
+  const [availableCameras, setAvailableCameras] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>("");
+
   const localVideoRef = useRef<HTMLVideoElement>(null);
   const remoteVideoRef = useRef<HTMLVideoElement>(null);
   const realtimeClientRef = useRef<any>(null);
@@ -81,7 +91,59 @@ const Index = () => {
     };
   }, []);
 
-  const handleStart = async () => {
+  // Enumerate cameras
+  const enumerateCameras = async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(device => device.kind === 'videoinput');
+      setAvailableCameras(videoDevices);
+
+      if (videoDevices.length > 0) {
+        setSelectedCameraId(videoDevices[0].deviceId);
+      }
+
+      return videoDevices;
+    } catch (err) {
+      console.error('Error enumerating cameras:', err);
+      return [];
+    }
+  };
+
+  const handleOpenCamera = async () => {
+    const cameras = await enumerateCameras();
+
+    if (cameras.length === 0) {
+      toast({
+        title: "No Camera Found",
+        description: "Please connect a camera and try again.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (cameras.length === 1) {
+      // Only one camera, start immediately
+      await handleStart(cameras[0].deviceId);
+    } else {
+      // Multiple cameras, show selector
+      setConnectionState("selecting-camera");
+    }
+  };
+
+  const handleCameraSelected = async () => {
+    if (!selectedCameraId) {
+      toast({
+        title: "No Camera Selected",
+        description: "Please select a camera.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    await handleStart(selectedCameraId);
+  };
+
+  const handleStart = async (deviceId?: string) => {
     if (!apiKey) {
       const errorMsg = "Decart API key not available";
       setError(errorMsg);
@@ -98,19 +160,22 @@ const Index = () => {
       setError(null);
 
       const model = models.realtime("mirage_v2");
-      
+
       // Get user's camera stream with model specifications
-      const stream = await navigator.mediaDevices.getUserMedia({
+      const constraints: MediaStreamConstraints = {
         audio: true,
         video: {
+          deviceId: deviceId ? { exact: deviceId } : undefined,
           frameRate: model.fps,
           width: model.width,
           height: model.height,
         }
-      });
+      };
+
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       localStreamRef.current = stream;
-      
+
       // Display local preview
       if (localVideoRef.current) {
         localVideoRef.current.srcObject = stream;
@@ -137,7 +202,7 @@ const Index = () => {
         const state = args[0] as string;
         console.log(`Connection state: ${state}`);
         setConnectionState(state as ConnectionState);
-        
+
         if (state === "connected") {
           toast({
             title: "Connected",
@@ -167,7 +232,7 @@ const Index = () => {
       const errorMessage = err.message || "Failed to start video stream";
       setError(errorMessage);
       setConnectionState("idle");
-      
+
       toast({
         title: "Error",
         description: errorMessage,
@@ -204,9 +269,9 @@ const Index = () => {
 
   const handleSetPrompt = () => {
     if (!inputPrompt.trim()) return;
-    
+
     setCurrentPrompt(inputPrompt);
-    
+
     if (realtimeClientRef.current && connectionState === "connected") {
       realtimeClientRef.current.setPrompt(inputPrompt);
       toast({
@@ -219,7 +284,7 @@ const Index = () => {
   const handlePresetStyle = (preset: typeof PRESET_STYLES[0]) => {
     setInputPrompt(preset.prompt);
     setCurrentPrompt(preset.prompt);
-    
+
     if (realtimeClientRef.current && connectionState === "connected") {
       realtimeClientRef.current.setPrompt(preset.prompt);
       toast({
@@ -232,7 +297,7 @@ const Index = () => {
   const handleToggleMirror = () => {
     const newMirrorState = !isMirrored;
     setIsMirrored(newMirrorState);
-    
+
     if (realtimeClientRef.current && connectionState === "connected") {
       realtimeClientRef.current.setMirror(newMirrorState);
     }
@@ -247,7 +312,7 @@ const Index = () => {
         <div className="mb-8">
           <div className="flex items-center gap-3 mb-2">
             <Wand2 className="w-8 h-8 text-primary" />
-            <h1 className="text-4xl font-bold">Decart Video Restyling</h1>
+            <h1 className="text-4xl font-bold">Live Style Studio</h1>
           </div>
           <p className="text-muted-foreground">
             Transform your webcam feed in real-time with AI-powered video restyling
@@ -257,19 +322,20 @@ const Index = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Main Video Area */}
           <div className="lg:col-span-2 space-y-4">
-            {/* Transformed Video */}
+            {/* Local Camera (Main Display) */}
             <Card className="relative overflow-hidden video-container border-video-border">
               <div className="aspect-video bg-card relative">
                 <video
-                  ref={remoteVideoRef}
+                  ref={localVideoRef}
                   autoPlay
                   playsInline
+                  muted
                   className={cn(
                     "w-full h-full object-contain",
                     isMirrored && "scale-x-[-1]"
                   )}
                 />
-                
+
                 {/* Connection Status Overlay */}
                 {connectionState === "connecting" && (
                   <div className="absolute inset-0 flex items-center justify-center bg-background/80 backdrop-blur-sm">
@@ -283,9 +349,61 @@ const Index = () => {
                 {connectionState === "idle" && (
                   <div className="absolute inset-0 flex items-center justify-center bg-card/50 backdrop-blur-sm">
                     <div className="text-center">
-                      <VideoOff className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
-                      <p className="text-lg font-medium">Click Start to begin streaming</p>
+                      <Button
+                        size="lg"
+                        onClick={handleOpenCamera}
+                        className="gap-2"
+                      >
+                        <Camera className="w-5 h-5" />
+                        Open Camera
+                      </Button>
+                      <p className="text-sm text-muted-foreground mt-4">
+                        Click to start streaming
+                      </p>
                     </div>
+                  </div>
+                )}
+
+                {connectionState === "selecting-camera" && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-background/95 backdrop-blur-sm">
+                    <Card className="p-6 max-w-md w-full mx-4">
+                      <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                        <Camera className="w-5 h-5" />
+                        Select Camera
+                      </h3>
+                      <div className="space-y-4">
+                        <Select
+                          value={selectedCameraId}
+                          onValueChange={setSelectedCameraId}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Choose a camera" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {availableCameras.map((camera) => (
+                              <SelectItem key={camera.deviceId} value={camera.deviceId}>
+                                {camera.label || `Camera ${camera.deviceId.substring(0, 8)}`}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <div className="flex gap-2">
+                          <Button
+                            onClick={handleCameraSelected}
+                            className="flex-1"
+                          >
+                            Start
+                          </Button>
+                          <Button
+                            onClick={() => setConnectionState("idle")}
+                            variant="outline"
+                            className="flex-1"
+                          >
+                            Cancel
+                          </Button>
+                        </div>
+                      </div>
+                    </Card>
                   </div>
                 )}
 
@@ -293,41 +411,49 @@ const Index = () => {
                 {connectionState === "connected" && (
                   <div className="absolute top-4 left-4 flex items-center gap-2 bg-background/90 backdrop-blur-sm px-4 py-2 rounded-full border border-border">
                     <div className="w-3 h-3 rounded-full bg-primary live-indicator"></div>
-                    <span className="text-sm font-medium">LIVE</span>
-                  </div>
-                )}
-
-                {/* Current Prompt */}
-                {currentPrompt && connectionState === "connected" && (
-                  <div className="absolute bottom-4 left-4 right-4 bg-background/90 backdrop-blur-sm px-4 py-2 rounded-lg border border-border">
-                    <div className="flex items-center gap-2">
-                      <Palette className="w-4 h-4 text-primary" />
-                      <span className="text-sm font-medium">{currentPrompt}</span>
-                    </div>
+                    <span className="text-sm font-medium">Your Camera</span>
                   </div>
                 )}
               </div>
             </Card>
 
-            {/* Local Preview */}
+            {/* AI Restyled Output (Secondary Display) */}
             <Card className="relative overflow-hidden border-border">
               <div className="flex items-center justify-between p-4 border-b border-border">
                 <h3 className="text-sm font-medium flex items-center gap-2">
-                  <Video className="w-4 h-4" />
-                  Local Preview
+                  <Wand2 className="w-4 h-4 text-primary" />
+                  AI Restyled Output
                 </h3>
               </div>
-              <div className="aspect-video bg-muted relative max-h-48">
+              <div className="aspect-video bg-muted relative max-h-64">
                 <video
-                  ref={localVideoRef}
+                  ref={remoteVideoRef}
                   autoPlay
                   playsInline
-                  muted
                   className={cn(
                     "w-full h-full object-contain",
                     isMirrored && "scale-x-[-1]"
                   )}
                 />
+
+                {connectionState !== "connected" && (
+                  <div className="absolute inset-0 flex items-center justify-center bg-muted/50">
+                    <div className="text-center text-muted-foreground">
+                      <Wand2 className="w-12 h-12 mx-auto mb-2 opacity-50" />
+                      <p className="text-sm">Restyled video will appear here</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Current Prompt Overlay */}
+                {currentPrompt && connectionState === "connected" && (
+                  <div className="absolute bottom-2 left-2 right-2 bg-background/90 backdrop-blur-sm px-3 py-1.5 rounded-md border border-border">
+                    <div className="flex items-center gap-2">
+                      <Palette className="w-3 h-3 text-primary" />
+                      <span className="text-xs font-medium truncate">{currentPrompt}</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </Card>
           </div>
@@ -349,17 +475,18 @@ const Index = () => {
                   "px-3 py-2 rounded-lg text-sm font-medium text-center",
                   connectionState === "connected" && "bg-primary/10 text-primary border border-primary/20",
                   connectionState === "connecting" && "bg-secondary text-secondary-foreground",
-                  connectionState === "idle" && "bg-muted text-muted-foreground"
+                  (connectionState === "idle" || connectionState === "selecting-camera") && "bg-muted text-muted-foreground"
                 )}>
                   {connectionState === "connected" && "Connected"}
                   {connectionState === "connecting" && "Connecting..."}
+                  {connectionState === "selecting-camera" && "Selecting Camera"}
                   {connectionState === "idle" && "Not Connected"}
                 </div>
 
                 <div className="flex gap-2">
                   {!isStreaming ? (
-                    <Button 
-                      onClick={handleStart} 
+                    <Button
+                      onClick={handleOpenCamera}
                       className="flex-1"
                       disabled={!apiKey}
                     >
@@ -367,8 +494,8 @@ const Index = () => {
                       Start
                     </Button>
                   ) : (
-                    <Button 
-                      onClick={handleStop} 
+                    <Button
+                      onClick={handleStop}
                       variant="destructive"
                       className="flex-1"
                     >
@@ -402,7 +529,7 @@ const Index = () => {
                     disabled={!isStreaming}
                     className="bg-secondary border-border"
                   />
-                  <Button 
+                  <Button
                     onClick={handleSetPrompt}
                     disabled={!inputPrompt.trim() || !isStreaming}
                     size="icon"
